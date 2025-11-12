@@ -1,0 +1,207 @@
+esphome:
+  name: p1poort
+
+esp32:
+  board: az-delivery-devkit-v4
+  framework:
+    type: arduino
+
+logger:
+
+wifi:
+  ssid: "FAEL-2.4GHz"
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "P1Poort Fallback Hotspot"
+    password: "lRV7oETKlmAb"
+
+mdns:
+  # Remove if you need mDNS, I am using a static DHCP lease
+  disabled: true
+
+web_server:
+  local: true
+
+status_led:
+  pin: GPIO2
+
+uart:
+  id: p1_uart
+  rx_pin: 
+    number: GPIO16
+    inverted: true
+  tx_pin: GPIO17
+  baud_rate: 115200
+
+dsmr:
+  uart_id: p1_uart
+
+external_components:
+  - source: github://f4n/esphome-influxdb-cloud@main
+    components: [ influxdb ]
+
+influxdb:
+  url: !secret influxdb_host
+  token: !secret influxdb_token
+  org: e98e1f61e09dcc78
+  bucket: dsmr
+  measurement: dsmr_data
+
+sensor:
+  - platform: dsmr
+    energy_delivered_tariff1:
+      name: "Totaal verbruik dagtarief"
+      unit_of_measurement: "kWh"
+    energy_delivered_tariff2:
+      name: "Totaal verbruik nachttarief"
+      unit_of_measurement: "kWh"
+    energy_returned_tariff1:
+      name: "Totale injectie dagtarief"
+      unit_of_measurement: "kWh"
+    energy_returned_tariff2:
+      name: "Totale injectie nachttarief"
+      unit_of_measurement: "kWh"
+    power_delivered:
+      name: "Huidig verbruik"
+      unit_of_measurement: "W"
+    power_returned:
+      name: "Huidige injectie"
+      unit_of_measurement: "W"
+    voltage_l1:
+      name: "Spanning L1"
+      unit_of_measurement: "V"
+    voltage_l2:
+      name: "Spanning L2"
+      unit_of_measurement: "V"
+    voltage_l3:
+      name: "Spanning L3"
+      unit_of_measurement: "V"
+    current_l1:
+      name: "Stroom L1"
+      unit_of_measurement: "A"
+    current_l2:
+      name: "Stroom L2"
+      unit_of_measurement: "A"
+    current_l3:
+      name: "Stroom L3"
+      unit_of_measurement: "A"
+    active_energy_import_current_average_demand:
+      name: "Huidige gemiddelde kwartierverbruik voor capaciteitstarief"
+      unit_of_measurement: "kW"
+    active_energy_import_maximum_demand_running_month:
+      name: "Maximale kwartierverbruik voor capaciteitstarief voor de huidige maand"
+      unit_of_measurement: "kW"
+    active_energy_import_maximum_demand_last_13_months:
+      name: "Maximale kwartierverbruik voor capaciteitstarief voor de afgelopen 13 maanden" 
+  - platform: template
+    name: "Tijdstip (numeriek)"
+    icon: "mdi:clock-time-eight-outline"
+    device_class: "timestamp"
+    lambda: |-
+      std::string dsmr_str = id(dsmr_timestamp_text).state;
+      
+      // Expects format YYMMDDhhmmssX (13 chars)
+      if (dsmr_str.length() != 13) {
+        ESP_LOGW("dsmr_timestamp", "Invalid timestamp string length: %s", dsmr_str.c_str());
+        return NAN; // Return 'Not a Number'
+      }
+      
+      int yy, mm, dd, h, m, s;
+      char dstFlag;
+
+      int items = sscanf(dsmr_str.c_str(), "%2d%2d%2d%2d%2d%2d%1c", 
+                        &yy, &mm, &dd, &h, &m, &s, &dstFlag);
+
+      if (items != 7) {
+        ESP_LOGW("dsmr_timestamp", "Failed to parse timestamp string: %s", dsmr_str.c_str());
+        return NAN;
+      }
+
+
+      // --- In-lined timegm logic starts here ---
+      // This logic calculates the number of seconds from 1970-01-01
+      // for the *local time* given in the string.
+      
+      // We place this *inside* the function to meet the no-helper constraint.
+      // It only needs to be initialized once.
+      static const int daysInMonth[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+      // 2. Calculate full year (e.g., 23 -> 2023)
+      // DSMR 'YY' is 2-digit, assume 21st century.
+      int year = yy + 2000;
+      
+      // 3. Calculate total days from 1970 to the start of the given year
+      long totalDays = 0;
+      for (int y = 1970; y < year; ++y) {
+        // In-lined leap year check:
+        // (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0)
+        if ((y % 4 == 0 && y % 100 != 0) || (y % 400 == 0)) {
+          totalDays += 366;
+        } else {
+          totalDays += 365;
+        }
+      }
+      
+      // 4. Calculate days from the start of the year to the start of the given month
+      // We use 'mm - 1' because 'mm' is 1-12
+      for (int m = 0; m < (mm - 1); ++m) {
+        totalDays += daysInMonth[m];
+        // Add leap day if this is a leap year and we are past February
+        if (m == 1 && ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0))) {
+          totalDays += 1;
+        }
+      }
+      
+      // 5. Add days in the current month
+      // We use 'dd - 1' because 'dd' is 1-31
+      totalDays += (dd - 1);
+      
+      // 6. Convert total days to seconds and add time
+      // Note: Using 'L' (long) to prevent 16-bit integer overflow
+      long localTimestamp = (totalDays * 86400L) + 
+                            (h * 3600L) + 
+                            (m * 60L) + 
+                            s;
+      // --- In-lined logic ends ---
+      
+      
+      // 7. Finally, subtract the Belgian offset to get true UTC
+      long utcTimestamp;
+      if (dstFlag == 'S') {
+        // 'S' = Summer (CEST, UTC+2), subtract 2 hours (7200 seconds)
+        utcTimestamp = localTimestamp - 7200L;
+      } else if (dstFlag == 'W') {
+        // 'W' = Winter (CET, UTC+1), subtract 1 hour (3600 seconds)
+        utcTimestamp = localTimestamp - 3600L;
+      } else {
+        if (Serial) {
+          Serial.print("Error: Invalid DST flag '");
+          Serial.print(dstFlag);
+          Serial.println("'");
+        }
+        return 0.0f;
+      }
+
+      // 8. Return as float as requested
+      return (float)utcTimestamp;
+  - platform: template
+    name: "Actief tarief (numeriek)"
+    icon: "mdi:theme-light-dark"
+    lambda: |-
+      if (id(actief_tarief_text).state == "0002") {
+        return 2.0;
+      } else {
+        return 1.0;
+      }
+
+text_sensor:
+  - platform: dsmr
+    timestamp:
+      # Format: "YYMMDDhhmmssX". X indicating summer or winter time.
+      name: "Tijdstip (textueel)"
+      id: dsmr_timestamp_text
+    electricity_tariff:
+      name: "Actief tarief (textueel)"
+      id: actief_tarief_text
