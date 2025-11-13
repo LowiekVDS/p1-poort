@@ -32,7 +32,10 @@ uart:
   rx_pin: 
     number: GPIO16
     inverted: true
-  tx_pin: GPIO17
+  # Note: tx_pin is not used, but esphome needs rx and tx pins to have same inversion.
+  tx_pin: 
+    number: GPIO17
+    inverted: true
   baud_rate: 115200
 
 dsmr:
@@ -95,106 +98,6 @@ sensor:
       unit_of_measurement: "kW"
     active_energy_import_maximum_demand_last_13_months:
       name: "Maximale kwartierverbruik voor capaciteitstarief voor de afgelopen 13 maanden" 
-  - platform: template
-    name: "Tijdstip (numeriek)"
-    icon: "mdi:clock-time-eight-outline"
-    device_class: "timestamp"
-    lambda: |-
-      std::string dsmr_str = id(dsmr_timestamp_text).state;
-      
-      // Expects format YYMMDDhhmmssX (13 chars)
-      if (dsmr_str.length() != 13) {
-        ESP_LOGW("dsmr_timestamp", "Invalid timestamp string length: %s", dsmr_str.c_str());
-        return NAN; // Return 'Not a Number'
-      }
-      
-      int yy, mm, dd, h, m, s;
-      char dstFlag;
-
-      int items = sscanf(dsmr_str.c_str(), "%2d%2d%2d%2d%2d%2d%1c", 
-                        &yy, &mm, &dd, &h, &m, &s, &dstFlag);
-
-      if (items != 7) {
-        ESP_LOGW("dsmr_timestamp", "Failed to parse timestamp string: %s", dsmr_str.c_str());
-        return NAN;
-      }
-
-
-      // --- In-lined timegm logic starts here ---
-      // This logic calculates the number of seconds from 1970-01-01
-      // for the *local time* given in the string.
-      
-      // We place this *inside* the function to meet the no-helper constraint.
-      // It only needs to be initialized once.
-      static const int daysInMonth[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-
-      // 2. Calculate full year (e.g., 23 -> 2023)
-      // DSMR 'YY' is 2-digit, assume 21st century.
-      int year = yy + 2000;
-      
-      // 3. Calculate total days from 1970 to the start of the given year
-      long totalDays = 0;
-      for (int y = 1970; y < year; ++y) {
-        // In-lined leap year check:
-        // (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0)
-        if ((y % 4 == 0 && y % 100 != 0) || (y % 400 == 0)) {
-          totalDays += 366;
-        } else {
-          totalDays += 365;
-        }
-      }
-      
-      // 4. Calculate days from the start of the year to the start of the given month
-      // We use 'mm - 1' because 'mm' is 1-12
-      for (int m = 0; m < (mm - 1); ++m) {
-        totalDays += daysInMonth[m];
-        // Add leap day if this is a leap year and we are past February
-        if (m == 1 && ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0))) {
-          totalDays += 1;
-        }
-      }
-      
-      // 5. Add days in the current month
-      // We use 'dd - 1' because 'dd' is 1-31
-      totalDays += (dd - 1);
-      
-      // 6. Convert total days to seconds and add time
-      // Note: Using 'L' (long) to prevent 16-bit integer overflow
-      long localTimestamp = (totalDays * 86400L) + 
-                            (h * 3600L) + 
-                            (m * 60L) + 
-                            s;
-      // --- In-lined logic ends ---
-      
-      
-      // 7. Finally, subtract the Belgian offset to get true UTC
-      long utcTimestamp;
-      if (dstFlag == 'S') {
-        // 'S' = Summer (CEST, UTC+2), subtract 2 hours (7200 seconds)
-        utcTimestamp = localTimestamp - 7200L;
-      } else if (dstFlag == 'W') {
-        // 'W' = Winter (CET, UTC+1), subtract 1 hour (3600 seconds)
-        utcTimestamp = localTimestamp - 3600L;
-      } else {
-        if (Serial) {
-          Serial.print("Error: Invalid DST flag '");
-          Serial.print(dstFlag);
-          Serial.println("'");
-        }
-        return 0.0f;
-      }
-
-      // 8. Return as float as requested
-      return (float)utcTimestamp;
-  - platform: template
-    name: "Actief tarief (numeriek)"
-    icon: "mdi:theme-light-dark"
-    lambda: |-
-      if (id(actief_tarief_text).state == "0002") {
-        return 2.0;
-      } else {
-        return 1.0;
-      }
 
 text_sensor:
   - platform: dsmr
