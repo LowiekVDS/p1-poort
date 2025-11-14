@@ -1,0 +1,110 @@
+esphome:
+  name: p1poort
+
+esp32:
+  board: az-delivery-devkit-v4
+  framework:
+    type: arduino
+
+logger:
+
+wifi:
+  ssid: "FAEL-2.4GHz"
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "P1Poort Fallback Hotspot"
+    password: "lRV7oETKlmAb"
+
+mdns:
+  # Remove if you need mDNS, I am using a static DHCP lease
+  disabled: true
+
+web_server:
+  local: true
+
+status_led:
+  pin: GPIO2
+
+uart:
+  id: p1_uart
+  rx_pin: 
+    number: GPIO16
+    inverted: true
+  # Note: tx_pin is not used, but esphome needs rx and tx pins to have same inversion.
+  tx_pin: 
+    number: GPIO17
+    inverted: true
+  baud_rate: 115200
+
+dsmr:
+  uart_id: p1_uart
+
+external_components:
+  - source: github://f4n/esphome-influxdb-cloud@main
+    components: [ influxdb ]
+
+influxdb:
+  url: !secret influxdb_host
+  token: !secret influxdb_token
+  org: e98e1f61e09dcc78
+  bucket: dsmr
+  measurement: dsmr_data
+
+sensor:
+  - platform: dsmr
+    energy_delivered_tariff1:
+      name: "Totaal verbruik dagtarief"
+      unit_of_measurement: "kWh"
+    energy_delivered_tariff2:
+      name: "Totaal verbruik nachttarief"
+      unit_of_measurement: "kWh"
+    energy_returned_tariff1:
+      name: "Totale injectie dagtarief"
+      unit_of_measurement: "kWh"
+    energy_returned_tariff2:
+      name: "Totale injectie nachttarief"
+      unit_of_measurement: "kWh"
+    power_delivered:
+      name: "Huidig verbruik"
+      unit_of_measurement: "W"
+    power_returned:
+      name: "Huidige injectie"
+      unit_of_measurement: "W"
+    voltage_l1:
+      name: "Spanning L1"
+      unit_of_measurement: "V"
+    voltage_l2:
+      name: "Spanning L2"
+      unit_of_measurement: "V"
+    voltage_l3:
+      name: "Spanning L3"
+      unit_of_measurement: "V"
+    current_l1:
+      name: "Stroom L1"
+      unit_of_measurement: "A"
+    current_l2:
+      name: "Stroom L2"
+      unit_of_measurement: "A"
+    current_l3:
+      name: "Stroom L3"
+      unit_of_measurement: "A"
+    active_energy_import_current_average_demand:
+      name: "Huidige gemiddelde kwartierverbruik voor capaciteitstarief"
+      unit_of_measurement: "kW"
+    active_energy_import_maximum_demand_running_month:
+      name: "Maximale kwartierverbruik voor capaciteitstarief voor de huidige maand"
+      unit_of_measurement: "kW"
+    active_energy_import_maximum_demand_last_13_months:
+      name: "Maximale kwartierverbruik voor capaciteitstarief voor de afgelopen 13 maanden" 
+
+text_sensor:
+  - platform: dsmr
+    timestamp:
+      # Format: "YYMMDDhhmmssX". X indicating summer or winter time.
+      name: "Tijdstip (textueel)"
+      id: dsmr_timestamp_text
+    electricity_tariff:
+      name: "Actief tarief (textueel)"
+      id: actief_tarief_text
